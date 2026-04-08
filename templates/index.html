@@ -88,13 +88,20 @@
       fd.append("file", selectedFile);
 
       try {
-        const res  = await fetch("/predict", { method: "POST", body: fd });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 60000);
+        const res = await fetch("/predict", { 
+          method: "POST", 
+          body: fd,
+          signal: controller.signal
+      });
+        clearTimeout(timeout);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         renderResults(data.predictions);
       } catch (e) {
-        document.getElementById("resultBody").innerHTML = `<p style="color:#c0392b">Error: ${e.message}</p>`;
-      } finally {
+        const msg = e.name === 'AbortError' ? 'Request timed out. Please try again!' : e.message;
+        document.getElementById("resultBody").innerHTML = `<p style="color:#c0392b">Error: ${msg}</p>`;      } finally {
         btn.disabled = false;
         btn.textContent = "Analyze Plant";
       }
