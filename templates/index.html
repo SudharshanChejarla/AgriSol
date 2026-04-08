@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AgriSol — Crop Disease Detection</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f6f8f3; color: #1a2a14; min-height: 100vh; }
+    header { background: #2d6a2d; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 22px; font-weight: 600; }
+    header span { font-size: 13px; opacity: .75; }
+    .container { max-width: 700px; margin: 40px auto; padding: 0 20px; }
+    .card { background: #fff; border-radius: 12px; border: 1px solid #dde8d4; padding: 28px; margin-bottom: 20px; }
+    .upload-zone { border: 2px dashed #a3c585; border-radius: 10px; padding: 40px 20px; text-align: center; cursor: pointer; transition: background .2s; }
+    .upload-zone:hover { background: #f0f7ea; }
+    .upload-zone p { color: #4a7a4a; font-size: 15px; margin-top: 8px; }
+    #preview { width: 100%; max-height: 280px; object-fit: cover; border-radius: 8px; margin-top: 16px; display: none; }
+    button { width: 100%; margin-top: 16px; padding: 13px; background: #2d6a2d; color: #fff; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; font-weight: 500; transition: background .2s; }
+    button:hover { background: #245224; }
+    button:disabled { background: #9ab89a; cursor: default; }
+    #result { display: none; }
+    .pred-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eef3e8; }
+    .pred-item:last-child { border-bottom: none; }
+    .rank { font-size: 18px; font-weight: 700; color: #2d6a2d; min-width: 24px; }
+    .label { flex: 1; font-size: 15px; text-transform: capitalize; }
+    .bar-wrap { width: 160px; background: #eef3e8; border-radius: 6px; height: 10px; }
+    .bar { height: 10px; border-radius: 6px; background: #2d6a2d; transition: width .5s; }
+    .pct { font-size: 14px; font-weight: 600; min-width: 48px; text-align: right; color: #2d6a2d; }
+    .spinner { text-align: center; padding: 20px; color: #4a7a4a; }
+    .healthy { color: #1a6b1a; background: #e8f7e8; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .diseased { color: #8b2500; background: #fce8e0; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 2a10 10 0 0 1 0 20"/><path d="M12 2C6.5 2 2 6.5 2 12"/><path d="M12 12c0-5 3-8 8-8"/></svg>
+    <h1>AgriSol</h1>
+    <span>Crop Disease Detection System</span>
+  </header>
+
+  <div class="container">
+    <div class="card">
+      <h2 style="font-size:18px;margin-bottom:16px;">Upload a Leaf Image</h2>
+      <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#4a7a4a" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p>Click to browse or drag & drop</p>
+        <p style="font-size:12px;color:#7a9a7a;margin-top:4px;">JPG, PNG — max 5MB</p>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleFile(this)"/>
+      <img id="preview" alt="Preview"/>
+      <button id="analyzeBtn" onclick="analyze()" disabled>Analyze Plant</button>
+    </div>
+
+    <div class="card" id="result">
+      <h2 style="font-size:18px;margin-bottom:16px;">Detection Results</h2>
+      <div id="resultBody"></div>
+    </div>
+  </div>
+
+  <script>
+    let selectedFile = null;
+
+    function handleFile(input) {
+      const file = input.files[0];
+      if (!file) return;
+      selectedFile = file;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = document.getElementById("preview");
+        img.src = e.target.result;
+        img.style.display = "block";
+      };
+      reader.readAsDataURL(file);
+      document.getElementById("analyzeBtn").disabled = false;
+      document.getElementById("result").style.display = "none";
+    }
+
+    async function analyze() {
+      if (!selectedFile) return;
+      const btn = document.getElementById("analyzeBtn");
+      btn.disabled = true;
+      btn.textContent = "Analyzing…";
+      document.getElementById("result").style.display = "block";
+      document.getElementById("resultBody").innerHTML = '<div class="spinner">🌿 Processing image…</div>';
+
+      const fd = new FormData();
+      fd.append("file", selectedFile);
+
+      try {
+        const res  = await fetch("/predict", { method: "POST", body: fd });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        renderResults(data.predictions);
+      } catch (e) {
+        document.getElementById("resultBody").innerHTML = `<p style="color:#c0392b">Error: ${e.message}</p>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Analyze Plant";
+      }
+    }
+
+    function renderResults(preds) {
+      const medals = ["🥇","🥈","🥉"];
+      let html = "";
+      preds.forEach((p, i) => {
+        const isHealthy = p.label.toLowerCase().includes("healthy");
+        const badge = isHealthy
+          ? `<span class="healthy">Healthy</span>`
+          : `<span class="diseased">Diseased</span>`;
+        html += `
+          <div class="pred-item">
+            <span class="rank">${medals[i]}</span>
+            <div class="label">${p.label} ${i===0 ? badge : ""}</div>
+            <div class="bar-wrap"><div class="bar" style="width:${p.confidence}%"></div></div>
+            <span class="pct">${p.confidence}%</span>
+          </div>`;
+      });
+      document.getElementById("resultBody").innerHTML = html;
+    }
+
+    const zone = document.querySelector(".upload-zone");
+    zone.addEventListener("dragover", e => { e.preventDefault(); zone.style.background="#f0f7ea"; });
+    zone.addEventListener("dragleave", () => { zone.style.background=""; });
+    zone.addEventListener("drop", e => {
+      e.preventDefault(); zone.style.background="";
+      const file = e.dataTransfer.files[0];
+      if (file) { document.getElementById("fileInput").files = e.dataTransfer.files; handleFile(document.getElementById("fileInput")); }
+    });
+  </script>
+</body>
+</html>
